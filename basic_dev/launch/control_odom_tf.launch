@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="basic_dev" type="tf_broadcaster" name="tf_broadcaster" />
+    <node pkg="basic_dev" type="odom_debug_get" name="odom_debug_get" output="screen" />
+    <node pkg="basic_dev" type="DroneController" name="DroneController" output="screen" />
+</launch>
