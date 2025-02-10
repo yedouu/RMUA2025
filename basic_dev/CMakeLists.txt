@@ -33,6 +33,19 @@ pcl_ros
 pcl_conversions
 )
 
+## 配置 msg 源文件
+add_message_files(
+  FILES
+  dronecontrol.msg
+)
+
+# 生成消息时依赖于 std_msgs
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
+
+
 catkin_package(
   INCLUDE_DIRS include
   CATKIN_DEPENDS message_runtime roscpp std_msgs # nodelet 
@@ -56,8 +69,8 @@ target_link_libraries(odom_debug_get ${catkin_LIBRARIES} )
 add_executable(point_cloud_transformer src/point_cloud_transformer.cpp)
 target_link_libraries(point_cloud_transformer ${catkin_LIBRARIES} )
 
-add_executable(PID src/PID.cpp)
-target_link_libraries(PID ${catkin_LIBRARIES} )
+add_executable(DroneController src/DroneController.cpp)
+target_link_libraries(DroneController ${catkin_LIBRARIES} )
 install(DIRECTORY
   launch
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}

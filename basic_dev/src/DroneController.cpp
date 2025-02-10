@@ -1,76 +1,91 @@
-// DroneController.cpp
+#include "basic_dev/dronecontrol.h"  // 自定义的msg，用来传递控制信息
+#include "ros/ros.h"
+#include "DroneController.hpp"
+#include "airsim_ros/RotorPWM.h"
 
-#include "DroneController.h"
-
-// PID 更新函数
-void PID::update(float error, float dt) {
-    integ += error * dt;
-    float deriv = (error - prevError) / dt;
-    out = kp * error + ki * integ + kd * deriv;
-    prevError = error;
-}
-
-// DroneController 类构造函数
-DroneController::DroneController() : pidStarted(false), startTime(ros::Time::now()) {
-    // 初始化 PID 控制器
-    heightPID = PID(10.0, 2.5, 10.0);  // 设置高度环 PID 参数
-
-    // ROS 订阅器和发布器
-    odom_sub = nh.subscribe("/odom_flu_nav", 10, &DroneController::odomCallback, this);  // 订阅Odometry话题
-    pwm_pub = nh.advertise<airsim_ros::RotorPWM>("/airsim_node/drone_1/rotor_pwm_cmd", 10);  // 发布PWM信号
-
-    // 目标高度
-    targetHeight = 0.5;  // 假设目标高度为0.5米
-}
-
-// 订阅 Odometry 数据并计算 PWM
-void DroneController::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
-    float currentHeight = msg->pose.pose.position.z;
-
-    // 启动 PID 控制
-    if (!pidStarted && (ros::Time::now() - startTime).toSec() > 1.0) {  
-        pidStarted = true;  
+class DroneControllerNode
+{
+public:
+    DroneControllerNode()
+    {
+        // 初始化ROS节点和控制句柄
+        nh_ = ros::NodeHandle();
+        
+        // 初始化目标位置和航向角
+        target_position_[0] = target_position_[1] = target_position_[2] = 0;
+        target_yaw_ = 0;
+        
+        // 初始化发布器
+        pwm_publisher_ = nh_.advertise<airsim_ros::RotorPWM>("airsim_node/drone_1/rotor_pwm_cmd", 1);
+        
+        // 订阅控制消息
+        control_subscriber_ = nh_.subscribe<basic_dev::dronecontrol>("/drone_control", 1, &DroneControllerNode::controlMsgCallback, this);
+        
+        // 定时器控制
+        control_timer_ = nh_.createTimer(ros::Duration(0.03), &DroneControllerNode::controlCallback, this);
     }
 
-    if (pidStarted) {
-        // 计算高度环 PID
-        float heightError = targetHeight - currentHeight;
-        float dt = 0.04;  // 假设控制周期为0.04秒
-        heightPID.update(heightError, dt);
-
-        // 将PID输出映射到PWM范围 [0, 1]
-        pwmValue = mapToNormalizedPWM(heightPID.out, -10.0, 10.0);
-    }
-
-    if (pwmValue > 0.23) pwmValue = 0.23;  // 限制PWM范围在 [0, 0.23]
+private:
+    // ROS相关对象
+    ros::NodeHandle nh_;
+    ros::Publisher pwm_publisher_;
+    ros::Subscriber control_subscriber_;
+    ros::Timer control_timer_;
     
-    // 计算四个电机的PWM值
-    airsim_ros::RotorPWM pwm_msg;
-    pwm_msg.rotorPWM0 = pwmValue;  
-    pwm_msg.rotorPWM1 = pwmValue;  
-    pwm_msg.rotorPWM2 = pwmValue;  
-    pwm_msg.rotorPWM3 = pwmValue;  
+    // 控制信息
+    float target_position_[3];
+    float target_yaw_;
+    airsim_ros::RotorPWM pwm_cmd_;
+    
+    // 控制器
+    DroneContorller droneController_;
 
-    ROS_INFO("PWM: %.2f", pwmValue);
+    //控制初始化标志
+    bool is_control_init = false;
+    
+    // 控制信息回调
+    void controlMsgCallback(const basic_dev::dronecontrol::ConstPtr& msg)
+    {
+        target_position_[0] = msg->px;
+        target_position_[1] = msg->py;
+        target_position_[2] = msg->pz;
+        target_yaw_ = msg->yaw;
 
-    pwm_pub.publish(pwm_msg);  
-}
-
-// 将 PID 输出映射到 PWM 信号范围 [0, 1]
-float DroneController::mapToNormalizedPWM(float pidOutput, float minValue, float maxValue) {
-    float normalizedOutput = (pidOutput - minValue) / (maxValue - minValue);
-    if (normalizedOutput < 0) normalizedOutput = 0;
-    if (normalizedOutput > 1) normalizedOutput = 1;
-    return normalizedOutput;
-}
-
-// 动态调整 Kp（误差大时减小 Kp，误差小的时候增大 Kp）
-void DroneController::dynamicKpAdjustment(float error) {
-    if (fabs(error) > 0.2) {
-        heightPID.kp = 5.0;  // 较小的 Kp
-    } else if (fabs(error) > 0.05) {
-        heightPID.kp = 8.0;  // 较大的 Kp
-    } else {
-        heightPID.kp = 12.0;  // 更大的 Kp
+        if(!is_control_init)
+        {
+            is_control_init = true;
+        }
     }
+
+    // 定时器控制回调
+    void controlCallback(const ros::TimerEvent&)
+    {
+        if(!is_control_init)
+        {
+            return;
+        }
+        
+        float pwm0, pwm1, pwm2, pwm3;
+        droneController_.position_control(target_position_[0], target_position_[1], target_position_[2], target_yaw_, pwm0, pwm1, pwm2, pwm3);
+
+        pwm_cmd_.rotorPWM0 = pwm0;
+        pwm_cmd_.rotorPWM1 = pwm1;
+        pwm_cmd_.rotorPWM2 = pwm2;
+        pwm_cmd_.rotorPWM3 = pwm3;
+        
+        pwm_publisher_.publish(pwm_cmd_);
+    }
+};  
+
+int main(int argc, char** argv)
+{
+    ros::init(argc, argv, "DroneControlnode"); // 初始化ros 节点，命名为DroneControlnode
+    
+    // 创建DroneControllerNode对象
+    DroneControllerNode drone_controller_node;
+    
+    // 循环等待回调
+    ros::spin();
+    
+    return 0;
 }

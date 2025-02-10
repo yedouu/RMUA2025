@@ -33,6 +33,8 @@ BasicDev::BasicDev(ros::NodeHandle *nh)
     pwm_cmd.rotorPWM2 = 0.1;
     pwm_cmd.rotorPWM3 = 0.1;
 
+    control_cmd_publisher = nh->advertise<basic_dev::dronecontrol>("/drone_control", 1);
+
     //无人机信息通过如下命令订阅，当收到消息时自动回调对应的函数
     odom_suber = nh->subscribe<geometry_msgs::PoseStamped>("/airsim_node/drone_1/debug/pose_gt", 1, std::bind(&BasicDev::pose_cb, this, std::placeholders::_1));//状态真值，用于赛道一
     gps_suber = nh->subscribe<geometry_msgs::PoseStamped>("/airsim_node/drone_1/gps", 1, std::bind(&BasicDev::gps_cb, this, std::placeholders::_1));//状态真值，用于赛道一
@@ -48,13 +50,15 @@ BasicDev::BasicDev(ros::NodeHandle *nh)
     vel_publisher = nh->advertise<airsim_ros::VelCmd>("airsim_node/drone_1/vel_cmd_body_frame", 1);
     pwm_publisher = nh->advertise<airsim_ros::RotorPWM>("airsim_node/drone_1/rotor_pwm_cmd", 1);
     
-    control_timer = nh->createTimer(ros::Duration(0.1), &BasicDev::control_cb, this);
+    control_timer = nh->createTimer(ros::Duration(0.03), &BasicDev::control_cb, this);
 
     Keyboard_Control_suber = nh->subscribe("/Vel_Control_debug", 1, &BasicDev::keyboard_cb, this);
 
-    is_takeoff = takeoff_client.call(takeoff); //起飞
+    // is_takeoff = takeoff_client.call(takeoff); //起飞
     // land_client.call(land); //降落
     // reset_client.call(reset); //重置
+
+    odom_flu_nav_suber = nh->subscribe("/odom_flu_nav", 10, &BasicDev::odomCallback, this);
 
     ros::spin();
 }
@@ -64,12 +68,59 @@ BasicDev::~BasicDev()
 
 }
 
+void BasicDev::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
+{
+    
+    //读取坐标
+    position_flu[0] = msg->pose.pose.position.x;
+    position_flu[1] = msg->pose.pose.position.y;
+    position_flu[2] = msg->pose.pose.position.z;
+
+        
+}
+
 void BasicDev::control_cb(const ros::TimerEvent&)
 {
-    if(is_takeoff){
-        vel_publisher.publish(velcmd);
-        // pwm_publisher.publish(pwm_cmd);
+    // if(is_takeoff){
+    //     vel_publisher.publish(velcmd);
+    //     // pwm_publisher.publish(pwm_cmd);
+    // }
+
+    // float pwnvalue_z = droneContorller.heightPID_out(1.0);
+    // float pwnvalue_z = droneContorller.height_velocityPID_out(0.5);
+    
+    if(!is_takeoff2){
+        //先确定任务
+        task_position[0][0] = 0, task_position[0][1] = 0, task_position[0][2] = 1.0, task_position[0][3] = 0;
+        task_position[1][0] = 0, task_position[1][1] = 0, task_position[1][2] = 2.0, task_position[1][3] = 0;
+        task_position[2][0] = 1, task_position[2][1] = 0, task_position[2][2] = 2.0, task_position[2][3] = 0;
+        task_position[3][0] = 2, task_position[3][1] = 0, task_position[3][2] = 2.0, task_position[3][3] = 0;
+        is_takeoff2 = true;
     }
+
+    //先计算与当前目标点的距离
+    float distance = sqrt(pow(task_position[task_num][0] - position_flu[0], 2) + pow(task_position[task_num][1] - position_flu[1], 2) + pow(task_position[task_num][2] - position_flu[2], 2));
+    if(distance < 0.1 and task_num < 3){    //还要加上航向角
+        task_num++;
+    }
+
+    // float pwm0,pwm1,pwm2,pwm3;
+    // // droneContorller.position_control(0, 0, 1.0, 1.57, pwm0, pwm1, pwm2, pwm3);
+    // droneContorller.position_control(task_position[task_num][0],task_position[task_num][1] ,task_position[task_num][2] ,task_position[task_num][3] , pwm0, pwm1, pwm2, pwm3);
+
+    // pwm_cmd.rotorPWM0 = pwm0;
+    // pwm_cmd.rotorPWM1 = pwm1;
+    // pwm_cmd.rotorPWM2 = pwm2;
+    // pwm_cmd.rotorPWM3 = pwm3;
+    // pwm_publisher.publish(pwm_cmd);
+
+    basic_dev::dronecontrol control_cmd;
+    control_cmd.px = task_position[task_num][0];
+    control_cmd.py = task_position[task_num][1];
+    control_cmd.pz = task_position[task_num][2];
+    control_cmd.yaw = task_position[task_num][3];
+    control_cmd_publisher.publish(control_cmd);
+
     
 }
 
@@ -100,6 +151,16 @@ void BasicDev::gps_cb(const geometry_msgs::PoseStamped::ConstPtr& msg)
 
 void BasicDev::imu_cb(const sensor_msgs::Imu::ConstPtr& msg)
 {
+    //计算欧拉角
+        tf2::Quaternion quat; // 创建四元数对象
+        tf2::convert(msg->orientation, quat); 
+        double roll, pitch, yaw; // 定义滚转角、俯仰角、航向角
+        tf2::Matrix3x3(quat).getRPY(roll, pitch, yaw); // 从四元数中提取出滚转角、俯仰角、航向角
+        // ROS_INFO("Roll: %f, Pitch: %f, Yaw: %f", roll, pitch, yaw);
+        currentRoll = roll;
+        currentPitch = pitch;
+        currentYaw = yaw;
+    
     // ROS_INFO("Get imu data. time: %f", msg->header.stamp.sec + msg->header.stamp.nsec*1e-9);
 }
 

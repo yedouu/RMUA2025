@@ -23,6 +23,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include "airsim_ros/RotorPWM.h"
+#include "DroneController.hpp"
+#include "basic_dev/dronecontrol.h"
 #endif
 
 class BasicDev
@@ -49,6 +51,15 @@ private:
     ros::Subscriber gps_suber;//gps数据
     ros::Subscriber imu_suber;//imu数据
     ros::Subscriber lidar_suber;//lidar数据
+
+    //获取自己发出的话题
+    ros::Subscriber odom_flu_nav_suber;
+    float position_flu[3] = {0};
+
+    float currentRoll;//当前滚转角
+    float currentPitch;//当前俯仰角
+    float currentYaw;//当前偏航角
+
     image_transport::Subscriber front_left_view_suber;
     image_transport::Subscriber front_right_view_suber;
 
@@ -59,14 +70,27 @@ private:
     ros::ServiceClient land_client;
     ros::ServiceClient reset_client;
 
+
+    //PID控制器
+    DroneContorller droneContorller;
+
     //通过publisher实现对无人机的控制
     ros::Publisher vel_publisher;
     ros::Publisher pwm_publisher;
 
+    ros::Publisher control_cmd_publisher;
+
     //创建控制定时器
     ros::Timer control_timer;
 
+    //临时任务列表
+    bool task_list[10] = {false};
+    float task_position[10][4] = {0};
+    float task_yaw[10] = {0};
+    int task_num = 0;
+
     bool is_takeoff = false;
+    bool is_takeoff2 = false;
 
     void pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg);
     void gps_cb(const geometry_msgs::PoseStamped::ConstPtr& msg);
@@ -79,6 +103,8 @@ private:
     void control_cb(const ros::TimerEvent&);
 
     void keyboard_cb(const airsim_ros::VelCmd::ConstPtr& msg);
+
+    void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
 
 
 public:
