@@ -1,7 +1,0 @@
-<launch>
-    <!-- <node pkg="basic_dev" type="tf_broadcaster" name="tf_broadcaster" /> -->
-    <node pkg="basic_dev" type="odom_debug_get" name="odom_debug_get" output="screen" />
-    <node pkg="basic_dev" type="DroneController" name="DroneController"  />
-    <node pkg="basic_dev" type="point_cloud_transformer" name="point_cloud_transformer"  />
-    <node pkg="basic_dev" type="ego_control" name="ego_control" output="screen" />
-</launch>
